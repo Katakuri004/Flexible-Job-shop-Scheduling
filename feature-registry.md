@@ -177,6 +177,47 @@ Each feature is labeled with a stable ID (`R-*`) and links to the relevant code 
   - `tests/test_marl_policy.py::test_actor_critic_gradient_flow` (confirms gradients flow through actor and critic heads)
   - `tests/test_marl_policy.py::test_actor_critic_integration_with_env` (end-to-end integration with FJSPEnv in a simple rollout)
 
+---
+
+### R-TRAIN-AC-09 – Simple Actor-Critic Training Loop
+
+- **Requirement**: Provide a reproducible, research-grade training loop for the single-agent actor-critic policy on the FJSP environment, with deterministic seeds, invariants, and basic logging.
+- **Implementation**:
+  - `TrainingConfig`, `EpisodeMetrics`, `run_episode`, `update_policy`, `save_checkpoint`, `run_training` in `src/ac_training.py`
+- **Behavior**:
+  - Uses `FJSPEnv` and `FJSPActorCritic` to collect rollouts for a fixed number of episodes
+  - Computes discounted returns and simple advantages (`return - value`) per step
+  - Optimizes actor and critic jointly with Adam, gradient clipping, and optional entropy bonus
+  - Saves periodic checkpoints to `checkpoints/` with run identifiers and seeds
+  - Enforces invariants:
+    - Every episode either terminates with `done=True` or hits the configured step limit
+    - Policy actions always reference valid indices in `feasible_actions`
+    - Logits, values, losses, rewards, and makespans are finite (no NaN/Inf)
+    - Gradient norms are finite after clipping
+- **Tests**:
+  - `tests/test_ac_training.py::test_ac_training_short_run` (smoke test for a short training run, validates metric shapes and numerical finiteness)
+
+---
+
+### R-NB-VIS-10 – Jupyter Notebook for Training and Visualisation
+
+- **Requirement**: Provide an executable Jupyter notebook that runs a short actor-critic training session and produces visualizations of learning dynamics and learned policy behavior.
+- **Implementation**:
+  - `notebooks/marl_training.ipynb`
+- **Notebook Structure**:
+  - Setup cell: imports, seed setup, and `TrainingConfig` definition for the toy Brandimarte instance
+  - Smoke-test cell: short 5-episode run to validate end-to-end training
+  - Main training cell: 100-episode training run using `run_training`, returning logged metrics
+  - Plotting cell: Matplotlib plots of episode rewards, final makespans, total loss, and value loss vs. episode index
+  - Behaviour visualisation cells:
+    - Load last checkpoint, run deterministic evaluation episodes, and collect schedules
+    - Render a simple Gantt-like chart (per-machine horizontal bars) for the resulting schedule
+- **Invariants**:
+  - Notebook sets global seeds at the beginning for reproducibility
+  - Training episode count and instance size are kept small enough for interactive use
+- **Tests**:
+  - Notebook is not executed in the automated test suite but relies on the tested `ac_training` and `marl_policy` modules for correctness
+
 
 
 

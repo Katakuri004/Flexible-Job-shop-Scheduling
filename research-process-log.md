@@ -338,5 +338,111 @@
 - Alternatively, first implement a simple baseline (e.g., random policy or rule-based heuristic) to establish performance benchmarks before RL training
 
 
+---
+
+## Entry 11: Simple Actor-Critic Training Loop (`ac_training.py`)
+
+**Date**: 2026-02-10  
+**Objective**: Implement a reproducible, research-grade training loop for the single-agent actor-critic policy on the FJSP environment, with deterministic seeds, invariants, and basic logging.
+
+**Actions Taken**:
+1. **Created `src/ac_training.py`**:
+   - Implemented `TrainingConfig` dataclass with:
+     - Environment and seed configuration (`instance_path`, `SeedConfig`)
+     - Optimization hyperparameters (learning rate, gamma, entropy/value coefficients, grad clipping)
+     - Training schedule (number of episodes, max steps per episode, log interval)
+     - Device selection and checkpointing options (`checkpoint_dir`, `checkpoint_prefix`)
+   - Implemented `EpisodeMetrics` dataclass capturing per-episode summary stats.
+   - Implemented `run_episode`:
+     - Interacts with `FJSPEnv` in step-wise fashion using `FJSPActorCritic` to select actions
+     - Builds graphs via `build_graph_from_env_state` at each step
+     - Collects per-step log-probabilities, value estimates, and rewards
+     - Enforces invariants (non-empty feasible action set; valid action indices; eventual termination or step limit; finite logits/values)
+     - Computes discounted returns and simple advantages (`return - value`)
+   - Implemented `update_policy`:
+     - Normalizes advantages
+     - Computes actor loss (policy gradient), critic loss (MSE to returns), and entropy bonus
+     - Applies gradient clipping and checks gradient norms for finiteness
+   - Implemented `save_checkpoint`:
+     - Persists model and optimizer state dicts along with config and episode index under `checkpoints/`.
+   - Implemented `run_training`:
+     - Applies global seeds via `set_global_seeds`
+     - Constructs `FJSPEnv` and `FJSPActorCritic`
+     - Runs the training loop for a configured number of episodes, logging:
+       - Episode rewards, final makespans, lengths, mean values, mean advantages, total loss, and value loss
+     - Periodically saves checkpoints and prints concise training summaries.
+
+2. **Created `tests/test_ac_training.py`**:
+   - `test_ac_training_short_run`:
+     - Runs a short 5-episode training session on the toy Brandimarte instance
+     - Verifies metric array lengths match `num_episodes`
+     - Asserts that rewards, makespans, and loss values are finite.
+
+**Results**:
+- New training loop integrates cleanly with `FJSPEnv`, `FJSPActorCritic`, and `build_graph_from_env_state`.
+- Gradient flow is preserved end-to-end (confirmed via training run and absence of autograd errors).
+- All tests pass: 21 tests total, including the new `test_ac_training_short_run`.
+
+**Observations**:
+- Keeping the training loop small and focused makes it easier to reason about invariants and numerical stability.
+- The current simple-advantage formulation (`return - value`) is sufficient for initial experiments but can later be upgraded to GAE and PPO-style objectives.
+- Checkpointing every `log_interval` episodes provides a convenient hook for offline analysis and notebook-based visualisation.
+
+**Next Step**:
+- Build a Jupyter notebook to:
+  - Run short training sessions interactively
+  - Plot learning curves (rewards, makespans, losses)
+  - Visualise the learned policy’s schedules via simple Gantt charts.
+
+---
+
+## Entry 12: Jupyter Notebook for Training and Visualisation (`notebooks/marl_training.ipynb`)
+
+**Date**: 2026-02-10  
+**Objective**: Provide an interactive, reproducible notebook that runs the simple actor-critic training loop and visualises learning dynamics and policy behaviour.
+
+**Actions Taken**:
+1. **Created `notebooks/marl_training.ipynb`** with the following structure:
+   - **Setup cell**:
+     - Imports `TrainingConfig`, `run_training`, `SeedConfig`, NumPy, and Matplotlib
+     - Sets global seeds via `set_global_seeds(SeedConfig(base_seed=2026))`
+     - Defines `train_config` for the toy Brandimarte instance (`data/brandimarte_mk_toy.txt`).
+   - **Smoke-test cell**:
+     - Runs a very short 5-episode training session to validate end-to-end functionality
+     - Displays initial episode rewards for quick sanity checking.
+   - **Main training cell**:
+     - Runs a 100-episode training session using `run_training(train_config)`
+     - Extracts episode rewards, final makespans, total loss, and value loss into NumPy arrays.
+   - **Learning-curve plotting cell**:
+     - Uses Matplotlib to plot:
+       - Episode reward vs. episode
+       - Final makespan vs. episode
+       - Total loss and value loss vs. episode
+   - **Policy behaviour visualisation cells**:
+     - Loads the last checkpoint (`ac_fjsp_ep{num_episodes}.pt`) produced during training
+     - Constructs a fresh `FJSPEnv` and `FJSPActorCritic` model and loads the checkpoint weights
+     - Runs a deterministic evaluation episode, logging:
+       - Step index
+       - `feasible_actions`
+       - Chosen action index
+       - Reward and `done` flags
+     - Extracts the final `schedule` and `makespan` from `env.last_schedule` / `env.last_makespan`
+     - Renders a simple Gantt-like chart:
+       - Per-machine horizontal bars spanning `[start, end]` for each `(job_id, op_idx)`
+       - Labels bars with `J{job_id}-O{op_idx}` for interpretability.
+
+**Results**:
+- Notebook can run short training and produce stable learning curves on the toy instance.
+- Policy behaviour visualisations (Gantt-like charts) provide an intuitive view of the learned schedules.
+- The notebook uses only tested library code (`ac_training`, `marl_policy`, `fjsp_env`, `graph_builder`), keeping experimental logic thin and auditable.
+
+**Observations**:
+- Keeping episode count modest (e.g., 100) ensures the notebook remains responsive while still showing learning trends.
+- Visualising schedules is extremely helpful for debugging and qualitative assessment of learned policies.
+- The notebook now serves as a primary entrypoint for exploratory experiments and demonstration.
+
+**Next Step**:
+- Explore upgrading the training loop to a PPO-style algorithm with GAE advantages and potentially multi-agent extensions (MAPPO), while preserving the existing tests and notebook as a baseline configuration.
+
 
 
