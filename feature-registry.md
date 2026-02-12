@@ -126,6 +126,57 @@ Each feature is labeled with a stable ID (`R-*`) and links to the relevant code 
   - `tests/test_graph_builder.py::test_graph_builder_deterministic_across_runs`
   - `tests/test_graph_builder.py::test_graph_builder_after_some_steps`
 
+---
+
+### R-HGNN-ENC-07 – Heterogeneous GNN Encoder for FJSP State Graphs
+
+- **Requirement**: Provide a lightweight heterogeneous GNN encoder that processes the graph representation from `build_graph_from_env_state` and produces node embeddings suitable for MARL policy networks.
+- **Implementation**:
+  - `HeterogeneousGNN`, `encode_state_with_gnn` in `src/hgnn_encoder.py`
+- **Architecture**:
+  - **Initial embeddings**: separate linear layers for operation features (6-dim) and machine features (2-dim) → hidden_dim (default 128)
+  - **Message passing layers** (configurable `num_layers`, default 2):
+    - Precedence message passing: operations aggregate messages from predecessor operations via mean pooling
+    - Compatibility message passing: bidirectional op↔machine message passing (operations receive from machines, machines receive from operations)
+  - **Normalization**: LayerNorm and dropout after each message passing layer, with residual connections
+  - **Output**: node embeddings for operations `[num_ops, hidden_dim]` and machines `[num_machines, hidden_dim]`
+- **Key Design Decisions**:
+  - Pure PyTorch implementation (no PyTorch Geometric dependency) for simplicity and easier debugging
+  - Unified node space for compatibility edges: machine indices offset by `num_ops` to distinguish from operation indices
+  - Mean pooling for message aggregation (simple but effective for small instances)
+- **Tests**:
+  - `tests/test_hgnn_encoder.py::test_hgnn_forward_pass_shapes` (validates output tensor shapes)
+  - `tests/test_hgnn_encoder.py::test_hgnn_gradient_flow` (confirms gradients flow and contain no NaN)
+  - `tests/test_hgnn_encoder.py::test_hgnn_deterministic_encoding` (identical models produce identical embeddings)
+  - `tests/test_hgnn_encoder.py::test_encode_state_with_gnn_convenience` (integration with graph_builder)
+  - `tests/test_hgnn_encoder.py::test_hgnn_after_env_steps` (encoding works at different episode stages)
+
+---
+
+### R-MARL-POLICY-08 – Actor-Critic Policy Network for FJSP Scheduling
+
+- **Requirement**: Provide a MARL policy network (actor-critic) that uses the HGNN encoder to produce action logits over feasible actions and state value estimates, enabling RL-based scheduling decisions.
+- **Implementation**:
+  - `FJSPActorCritic` in `src/marl_policy.py`
+- **Architecture**:
+  - **Shared HGNN encoder**: Uses `HeterogeneousGNN` to produce operation and machine node embeddings
+  - **Actor head**: Scores feasible actions by concatenating operation and machine embeddings for each `(job_id, op_index, machine_id)` action, then passes through MLP to produce action logits
+  - **Critic head**: Estimates state value by pooling operation and machine embeddings (mean pooling) and passing through MLP
+  - **Action selection**: Supports both deterministic (argmax) and stochastic (Categorical sampling) modes
+- **Key Design Decisions**:
+  - Single-agent policy (not yet dual-agent MAPPO) for initial validation
+  - Dynamic action space: action logits are computed only for currently feasible actions from `FJSPEnv`
+  - Action scoring combines embeddings from the specific operation and machine involved in each action
+  - State value is computed from global graph representation (pooled embeddings)
+- **Integration**:
+  - Works with `build_graph_from_env_state` output and `FJSPEnv`'s `feasible_actions` list
+  - `get_action_and_value` convenience method provides action selection, logits, and value in one call
+- **Tests**:
+  - `tests/test_marl_policy.py::test_actor_critic_forward_pass_shapes` (validates output tensor shapes match feasible actions)
+  - `tests/test_marl_policy.py::test_actor_critic_action_selection` (tests deterministic and stochastic action selection)
+  - `tests/test_marl_policy.py::test_actor_critic_gradient_flow` (confirms gradients flow through actor and critic heads)
+  - `tests/test_marl_policy.py::test_actor_critic_integration_with_env` (end-to-end integration with FJSPEnv in a simple rollout)
+
 
 
 

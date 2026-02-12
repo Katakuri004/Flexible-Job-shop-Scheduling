@@ -109,8 +109,12 @@ def build_graph_from_env_state(
     assert precedence_edge_index.shape[0] == 2, "Precedence edges must be [2, num_edges]"
 
     # Build compatibility edges: (operation) <-> (machine) [bidirectional]
+    # Machine indices are offset by num_ops to create a unified node space:
+    # - Operation nodes: 0..num_ops-1
+    # - Machine nodes: num_ops..num_ops+num_machines-1
     compatibility_edges: List[Tuple[int, int]] = []
     machine_id_to_idx: Dict[int, int] = {m_id: idx for idx, m_id in enumerate(machine_node_ids)}
+    total_ops = len(op_node_ids)
 
     for job in step_jobs:
         job_id = job["job_id"]
@@ -120,9 +124,11 @@ def build_graph_from_env_state(
             op_node_idx = op_id_to_idx[(job_id, op_idx)]
             for m_id in op_machines[op_idx]:
                 m_node_idx = machine_id_to_idx[m_id]
+                # Offset machine index by num_ops for unified node space
+                m_node_idx_offset = m_node_idx + total_ops
                 # Bidirectional: op -> machine and machine -> op
-                compatibility_edges.append((op_node_idx, m_node_idx))
-                compatibility_edges.append((m_node_idx, op_node_idx))
+                compatibility_edges.append((op_node_idx, m_node_idx_offset))
+                compatibility_edges.append((m_node_idx_offset, op_node_idx))
 
     compatibility_edge_index = np.array(compatibility_edges, dtype=np.int64).T
     assert compatibility_edge_index.shape[0] == 2, "Compatibility edges must be [2, num_edges]"

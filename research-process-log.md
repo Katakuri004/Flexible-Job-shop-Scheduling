@@ -244,6 +244,98 @@
 - **Next Step**:
   - Implement a minimal heterogeneous GNN encoder (using PyTorch Geometric or a lightweight PyTorch-only version) that processes these graphs and produces node embeddings, with unit tests for forward pass, gradient flow, and deterministic encoding.
 
+### Entry 9 – Step 7 Implementation: Heterogeneous GNN Encoder
+- **Timestamp**: 2026-02-12
+- **Goal**: Implement a lightweight heterogeneous GNN encoder that processes the graph representation from `build_graph_from_env_state` and produces node embeddings suitable for MARL policy networks, with strong tests for forward pass, gradient flow, and deterministic behavior.
+- **Files Added/Updated**:
+  - Added `src/hgnn_encoder.py`: implements `HeterogeneousGNN` (pure PyTorch, no PyG dependency) and convenience function `encode_state_with_gnn`.
+  - Added `tests/test_hgnn_encoder.py`: 5 tests covering forward pass shapes, gradient flow, deterministic encoding, convenience function integration, and encoding at different episode stages.
+  - Updated `src/graph_builder.py`: modified compatibility edge construction to offset machine indices by `num_ops`, creating a unified node space (operations: 0..num_ops-1, machines: num_ops..num_ops+num_machines-1) for cleaner message passing.
+  - Updated `feature-registry.md` with `R-HGNN-ENC-07` documenting the encoder architecture, design decisions, and associated tests.
+- **Key Actions**:
+  - Designed a lightweight heterogeneous GNN architecture:
+    - Separate initial embedding layers for operations (6 features → hidden_dim) and machines (2 features → hidden_dim)
+    - Multi-layer message passing with relation-specific layers:
+      - Precedence message passing: operations aggregate messages from predecessor operations via mean pooling
+      - Compatibility message passing: bidirectional op↔machine aggregation (operations receive from machines, machines receive from operations)
+    - Layer normalization, dropout, and residual connections after each message passing layer
+    - Outputs node embeddings for both node types: `op_embeddings [num_ops, hidden_dim]` and `machine_embeddings [num_machines, hidden_dim]`
+  - Fixed graph builder compatibility edge indexing:
+    - Modified `build_graph_from_env_state` to offset machine indices by `num_ops` in compatibility edges, creating a unified node space
+    - Updated HGNN message passing to correctly handle this unified space (operations: 0..num_ops-1, machines: num_ops..num_ops+num_machines-1)
+  - Implemented `encode_state_with_gnn` convenience function that:
+    - Takes graph data from `build_graph_from_env_state` and a `HeterogeneousGNN` model
+    - Converts numpy arrays to torch tensors
+    - Runs forward pass in eval mode and returns embeddings
+  - Added comprehensive tests:
+    - Forward pass shape validation
+    - Gradient flow check (loss backward, verify gradients exist and contain no NaN)
+    - Deterministic encoding (identical models produce identical embeddings)
+    - Integration with graph builder
+    - Encoding at different episode stages (initial state vs after steps)
+- **Tests and Results**:
+  - Full `pytest` run: 16 tests passing (up from 11), including 5 new HGNN encoder tests, all passing in ~2.1s
+  - Verified that:
+    - HGNN produces correct output shapes for operation and machine embeddings
+    - Gradients flow through the network (essential for training)
+    - Encoding is deterministic under fixed model weights and inputs
+    - The encoder integrates cleanly with the graph builder pipeline
+- **Observations**:
+  - The pure PyTorch implementation is sufficient for small-to-medium instances and avoids PyG dependency complexity at this stage
+  - The unified node space (offset machine indices) simplifies message passing logic and makes the code more maintainable
+  - The encoder is ready to be integrated into MARL policy networks (actor-critic heads can consume the node embeddings)
+- **Next Step**:
+  - Begin implementing a simple MARL policy network (e.g., a basic actor-critic) that uses the HGNN encoder to produce action logits from graph embeddings, starting with a single-agent or simplified dual-agent setup to validate the end-to-end pipeline before full MAPPO implementation.
+
+---
+
+## Entry 10: MARL Actor-Critic Policy Network Implementation
+
+**Date**: 2026-02-10  
+**Objective**: Implement a basic actor-critic policy network that uses the HGNN encoder to produce action logits and state value estimates for FJSP scheduling.
+
+**Actions Taken**:
+1. **Created `src/marl_policy.py`**:
+   - Implemented `FJSPActorCritic` class with:
+     - Shared `HeterogeneousGNN` encoder for node embeddings
+     - Actor head: MLP that scores feasible actions by combining operation and machine embeddings
+     - Critic head: MLP that estimates state value from pooled node embeddings
+     - `forward()` method: computes action logits (if feasible_actions provided) and state value
+     - `get_action_and_value()` convenience method: selects action (deterministic or stochastic) and returns logits and value
+   - Design decisions:
+     - Single-agent policy (not yet dual-agent MAPPO) for initial validation
+     - Dynamic action space: action logits computed only for currently feasible actions
+     - Action scoring: concatenates embeddings from the specific operation and machine involved in each action
+     - State value: computed from global graph representation (mean-pooled embeddings)
+
+2. **Created `tests/test_marl_policy.py`**:
+   - `test_actor_critic_forward_pass_shapes`: Validates output tensor shapes (value is scalar, action_logits match number of feasible actions)
+   - `test_actor_critic_action_selection`: Tests deterministic (argmax) and stochastic (Categorical sampling) action selection
+   - `test_actor_critic_gradient_flow`: Confirms gradients flow through actor and critic heads without NaN
+   - `test_actor_critic_integration_with_env`: End-to-end integration test with `FJSPEnv` in a simple rollout
+
+3. **Updated `feature-registry.md`**:
+   - Added `R-MARL-POLICY-08` entry documenting the actor-critic policy network requirement, implementation, architecture, and tests
+
+**Results**:
+- All 4 new policy tests pass
+- Full test suite: 20 tests passing (16 existing + 4 new)
+- Policy network successfully integrates with `FJSPEnv`, `build_graph_from_env_state`, and `HeterogeneousGNN`
+- Gradient flow confirmed through both actor and critic heads
+
+**Observations**:
+- The actor-critic architecture cleanly separates action scoring (actor) from state value estimation (critic)
+- Dynamic action space handling (scoring only feasible actions) works well with the current `FJSPEnv` API
+- The policy network is ready for training loop integration (next step would be implementing a training algorithm like PPO or MAPPO)
+- The single-agent policy serves as a foundation that can be extended to dual-agent MAPPO later
+
+**Next Step**:
+- Implement a basic training loop (e.g., PPO or simplified MAPPO) that:
+  - Collects rollouts using the actor-critic policy
+  - Computes advantages (e.g., GAE)
+  - Updates policy and value networks via policy gradient loss
+  - Includes logging and checkpointing for experiment tracking
+- Alternatively, first implement a simple baseline (e.g., random policy or rule-based heuristic) to establish performance benchmarks before RL training
 
 
 
