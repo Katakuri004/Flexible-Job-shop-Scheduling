@@ -204,6 +204,46 @@
 - **Next Step**:
   - Add a cross-check test that aligns the step-wise fixed policy schedule with the existing SimPy greedy environment on the toy instance, and then begin defining a more informative observation encoding suitable for GNN-based policies (while keeping the current simple one for baseline MARL experiments).
 
+### Entry 8 – Step 6 Implementation: Heterogeneous Graph Construction from FJSPEnv State
+- **Timestamp**: 2026-02-12
+- **Goal**: Implement graph construction utilities that convert `FJSPEnv` step-wise internal state into a heterogeneous graph representation (operation nodes, machine nodes, precedence/compatibility edges) suitable for GNN-based MARL policies, with strong invariants and deterministic behavior.
+- **Files Added/Updated**:
+  - Added `src/graph_builder.py`: implements `build_graph_from_env_state` that constructs a heterogeneous graph from `FJSPEnv` internal state (`_step_jobs`, `_step_machines`).
+  - Added `tests/test_graph_builder.py`: 4 tests covering graph structure, feature values, determinism, and behavior after environment steps.
+  - Updated `feature-registry.md` with `R-GRAPH-STATE-06` documenting the graph schema, invariants, and associated tests.
+- **Key Actions**:
+  - Defined a heterogeneous graph schema:
+    - **Operation nodes**: one per `(job_id, op_index)` with 6 features:
+      - `is_scheduled` (0.0/1.0), `is_current` (1.0 if this is the next op of its job), `is_future` (1.0 if op_index > next_op_index)
+      - `remaining_ops_in_job`, `op_index_normalized` (op_idx / num_ops), `num_compatible_machines`
+    - **Machine nodes**: one per `machine_id` with 2 features:
+      - `available_at` (time when machine becomes free), `compatible_ops_count` (count of remaining unscheduled ops compatible with this machine)
+    - **Precedence edges**: directed `(job_id, op_k) → (job_id, op_{k+1})` for consecutive operations
+    - **Compatibility edges**: bidirectional `(operation) ↔ (machine)` if machine can process that operation
+  - Implemented `build_graph_from_env_state` to:
+    - Enumerate all operation nodes with stable IDs `(job_id, op_index)` and compute features from env state
+    - Enumerate machine nodes and compute features (availability, compatible ops count)
+    - Build precedence edge index array `[2, num_prec_edges]` connecting consecutive ops within each job
+    - Build compatibility edge index array `[2, num_compat_edges]` connecting ops to compatible machines (bidirectional)
+    - Return a dictionary with `op_node_ids`, `machine_node_ids`, `op_features`, `machine_features`, `precedence_edges`, `compatibility_edges`
+  - Embedded invariants:
+    - Operation node count equals total operations
+    - Precedence edge count equals `sum(num_ops - 1)` per job
+    - Feature arrays have expected shapes (`[num_ops, 6]` and `[num_machines, 2]`)
+    - All operation IDs are unique and cover all `(job_id, op_index)` pairs
+- **Tests and Results**:
+  - `test_graph_builder_basic_structure`: validates node/edge counts, feature shapes, and structural invariants on the toy Brandimarte instance
+  - `test_graph_builder_feature_values_initial_state`: checks that feature values are correct at reset (unscheduled ops, first op of each job marked as "current", machines available at 0.0)
+  - `test_graph_builder_deterministic_across_runs`: verifies that identical env states produce identical graph structures and feature arrays (within float tolerance)
+  - `test_graph_builder_after_some_steps`: confirms that after taking steps, scheduled ops and machine availability are correctly reflected in features
+  - Full `pytest` run: 11 tests passing (up from 7), including 4 new graph builder tests, all passing in ~0.22s
+- **Observations**:
+  - The graph representation is deterministic and can be constructed at any point during an episode, making it suitable for GNN-based policy networks
+  - Feature engineering is minimal but captures essential scheduling state (scheduled/current/future ops, machine availability, compatibility)
+  - The bidirectional compatibility edges allow GNNs to propagate information both from operations to machines and vice versa
+- **Next Step**:
+  - Implement a minimal heterogeneous GNN encoder (using PyTorch Geometric or a lightweight PyTorch-only version) that processes these graphs and produces node embeddings, with unit tests for forward pass, gradient flow, and deterministic encoding.
+
 
 
 

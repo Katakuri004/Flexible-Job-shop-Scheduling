@@ -101,6 +101,31 @@ Each feature is labeled with a stable ID (`R-*`) and links to the relevant code 
   - `tests/test_fjsp_env_api.py::test_fjsp_env_reset_and_step_api`
   - `tests/test_fjsp_env_api.py::test_fjsp_env_deterministic_replay_with_seed`
 
+---
+
+### R-GRAPH-STATE-06 – Heterogeneous Graph Construction from FJSPEnv State
+
+- **Requirement**: Convert the step-wise internal state of `FJSPEnv` into a heterogeneous graph representation suitable for GNN-based MARL policies, with operation nodes, machine nodes, precedence edges, and compatibility edges.
+- **Implementation**:
+  - `build_graph_from_env_state` in `src/graph_builder.py`
+- **Graph Schema**:
+  - **Node types**:
+    - Operation nodes: one per `(job_id, op_index)` with 6 features: `[is_scheduled, is_current, is_future, remaining_ops_in_job, op_index_normalized, num_compatible_machines]`
+    - Machine nodes: one per `machine_id` with 2 features: `[available_at, compatible_ops_count]`
+  - **Edge types**:
+    - Precedence edges: directed `(job_id, op_k) → (job_id, op_{k+1})` for consecutive operations within each job
+    - Compatibility edges: bidirectional `(operation) ↔ (machine)` if the machine can process that operation
+- **Key Invariants**:
+  - Number of operation nodes equals total operations across all jobs
+  - Precedence edges exist exactly `(num_ops - 1)` per job
+  - Compatibility edges match `op_machines` from env state (bidirectional, so each op-machine pair creates 2 edges)
+  - Feature vectors have consistent shapes: `op_features` is `[num_ops, 6]`, `machine_features` is `[num_machines, 2]`
+- **Tests**:
+  - `tests/test_graph_builder.py::test_graph_builder_basic_structure`
+  - `tests/test_graph_builder.py::test_graph_builder_feature_values_initial_state`
+  - `tests/test_graph_builder.py::test_graph_builder_deterministic_across_runs`
+  - `tests/test_graph_builder.py::test_graph_builder_after_some_steps`
+
 
 
 
