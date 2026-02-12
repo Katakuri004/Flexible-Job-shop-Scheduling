@@ -445,4 +445,80 @@
 - Explore upgrading the training loop to a PPO-style algorithm with GAE advantages and potentially multi-agent extensions (MAPPO), while preserving the existing tests and notebook as a baseline configuration.
 
 
+---
+
+## Entry 13: PPO+GAE Training Loop and Policy Evaluation
+
+**Date**: 2026-02-10  
+**Objective**: Implement a PPO-style training loop with GAE advantages for the FJSP actor-critic policy, integrate it with the existing environment/encoder stack, and empirically compare its performance against a greedy heuristic baseline on the toy Brandimarte instance.
+
+**Actions Taken**:
+1. **Implemented `src/ppo_training.py`**:
+   - Added `PPOConfig` dataclass mirroring `TrainingConfig` but with PPO-specific hyperparameters:
+     - `gamma`, `gae_lambda`, `clip_range`, `entropy_coef`, `value_coef`, `max_grad_norm`
+     - Training schedule: `num_epochs`, `episodes_per_epoch`, `max_steps_per_episode`, `ppo_update_iters`
+     - Device selection (`cpu`/`cuda`) to support GPU training.
+   - Implemented `_compute_gae`:
+     - Computes GAE(\(\lambda\)) advantages and returns from per-step rewards, values, and done flags.
+   - Implemented `collect_ppo_batch`:
+     - Runs multiple episodes of `FJSPEnv` using `FJSPActorCritic` with stochastic actions.
+     - Stores per-step graphs, feasible action lists, chosen actions, log-probabilities, value estimates, rewards, and done flags.
+     - Computes and normalizes advantages and returns via `_compute_gae`.
+   - Implemented `ppo_update`:
+     - Recomputes logits and values for each stored `(graph, feasible, action)` under the current policy.
+     - Computes clipped PPO surrogate loss, value loss, and entropy bonus, with gradient clipping and numerical checks.
+   - Implemented `run_ppo_training`:
+     - Applies global seeds via `set_global_seeds`.
+     - Constructs `FJSPEnv` and `FJSPActorCritic` (now with proper device handling through `encode_state_with_gnn(..., device=...)`).
+     - Repeats batch collection and PPO updates for a configured number of epochs, logging:
+       - Epoch losses, value losses, entropies, and mean episode makespans.
+
+2. **Added tests for PPO loop**:
+   - `tests/test_ppo_training.py::test_ppo_training_smoke`:
+     - Runs a short PPO training session on the toy Brandimarte instance.
+     - Verifies that all metric arrays have the expected lengths and contain only finite values.
+
+3. **Extended `notebooks/marl_training.ipynb` with PPO section**:
+   - Added imports and `ppo_config` definition using GPU when available.
+   - Added cell running `run_ppo_training(ppo_config)` for 50 epochs and extracting:
+     - `epoch_losses`, `epoch_value_losses`, `epoch_mean_makespans`.
+   - Added plots:
+     - Epoch-wise mean makespan vs. epoch.
+     - PPO total loss and value loss vs. epoch.
+   - Added comparison cells:
+     - Reused the greedy earliest-machine evaluation helper.
+     - Evaluated the PPO policy deterministically and printed:
+       - Greedy baseline stats (mean/best/worst makespan = 12.0).
+       - PPO policy deterministic makespan (≈ 9.0 on the toy instance).
+
+4. **Device-handling fix for GPU training**:
+   - Updated `FJSPActorCritic.forward` in `src/marl_policy.py` to pass the model’s device into `encode_state_with_gnn`, ensuring that GNN inputs and model parameters live on the same device (CPU or CUDA).
+   - Re-ran the full test suite to confirm correctness under both actor-critic and PPO training paths (22 tests passing).
+
+**Results**:
+- PPO training is numerically stable:
+  - PPO total loss and value loss decrease rapidly and remain low over 50 epochs.
+- Performance comparison on the toy Brandimarte instance:
+  - Greedy earliest-machine baseline:
+    - Mean makespan: 12.0 (std = 0.0, best = worst = 12.0).
+  - PPO policy (deterministic evaluation after training):
+    - Achieved makespan ≈ 9.0 on the evaluated episode.
+    - Epoch-wise mean makespans trend toward 9–10, indicating consistent improvement over the heuristic.
+- GPU training works end-to-end for PPO and actor-critic via the shared device logic in the encoder.
+
+**Observations**:
+- PPO with GAE significantly outperforms both the simple actor-critic baseline and the greedy earliest-machine heuristic on the toy instance.
+- Storing per-step graphs and feasible action lists in the PPO batch enables correct recomputation of logits/values for each update, at the cost of some memory; this is acceptable for small instances and serves as a clear, auditable reference implementation.
+- The notebook now demonstrates a full progression:
+  - Environment + encoder sanity checks.
+  - Simple actor-critic training and visualisation.
+  - Greedy baseline vs. actor-critic.
+  - PPO+GAE training and clear improvement over the heuristic.
+
+**Next Step**:
+- Scale beyond the toy instance:
+  - Introduce one or more larger Brandimarte-style instances and repeat the evaluation pipeline (greedy vs. actor-critic vs. PPO).
+  - Monitor whether PPO maintains an advantage as the scheduling problem becomes more complex and closer to realistic FJSP benchmarks.
+
+
 

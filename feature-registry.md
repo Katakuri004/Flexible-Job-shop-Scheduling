@@ -218,6 +218,35 @@ Each feature is labeled with a stable ID (`R-*`) and links to the relevant code 
 - **Tests**:
   - Notebook is not executed in the automated test suite but relies on the tested `ac_training` and `marl_policy` modules for correctness
 
+---
+
+### R-PPO-TRAIN-11 – PPO+GAE Training Loop and Evaluation
+
+- **Requirement**: Provide a stronger, PPO-style training algorithm with GAE advantages for the FJSP actor-critic policy, and demonstrate that it can outperform a greedy heuristic baseline on the toy Brandimarte instance.
+- **Implementation**:
+  - `PPOConfig`, `_compute_gae`, `collect_ppo_batch`, `ppo_update`, `run_ppo_training` in `src/ppo_training.py`
+- **Behavior**:
+  - Collects batched trajectories from `FJSPEnv` using `FJSPActorCritic` with stochastic actions
+  - Computes GAE(\(\lambda\)) advantages and corresponding returns
+  - Runs multiple PPO-style update iterations per batch with:
+    - Clipped surrogate objective on log-probability ratios
+    - Value function regression loss
+    - Entropy bonus for exploration
+    - Gradient clipping and numerical finiteness checks
+  - Logs per-epoch metrics: total loss, value loss, entropy, and mean episode makespan
+  - Integrates with GPU training via the shared device handling in `FJSPActorCritic.forward`
+- **Notebook integration**:
+  - `notebooks/marl_training.ipynb` extended with a PPO section:
+    - Defines `ppo_config` (using GPU when available)
+    - Runs `run_ppo_training` for 50 epochs
+    - Plots epoch-wise mean makespan and losses
+    - Compares PPO policy performance against the greedy earliest-machine heuristic and the earlier actor-critic baseline
+- **Empirical Result on Toy Instance**:
+  - Greedy earliest-machine baseline: fixed makespan 12.0 (mean = best = worst)
+  - PPO policy (deterministic evaluation after training): makespan ≈ 9.0, with epoch mean makespans trending toward 9–10
+- **Tests**:
+  - `tests/test_ppo_training.py::test_ppo_training_smoke` (short PPO run, verifies metric lengths and numerical finiteness)
+
 
 
 

@@ -86,8 +86,9 @@ class FJSPActorCritic(nn.Module):
         - 'action_logits': torch.Tensor [num_feasible_actions] (if feasible_actions provided)
         - 'value': torch.Tensor [1] (state value estimate)
         """
-        # Encode graph with GNN
-        embeddings = encode_state_with_gnn(graph_data, self.gnn)
+        # Encode graph with GNN on the same device as the policy
+        device = next(self.parameters()).device
+        embeddings = encode_state_with_gnn(graph_data, self.gnn, device=device)
         op_emb = embeddings["op_embeddings"]  # [num_ops, hidden_dim]
         machine_emb = embeddings["machine_embeddings"]  # [num_machines, hidden_dim]
 
