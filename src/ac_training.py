@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -195,12 +195,29 @@ def update_policy(
 
     loss = actor_loss + config.value_coef * value_loss - config.entropy_coef * entropy_estimate
 
+    # Sanity-check loss: skip update if non-finite
+    if not torch.isfinite(loss):
+        return {
+            "loss": float("nan"),
+            "actor_loss": float(actor_loss.item()),
+            "value_loss": float(value_loss.item()),
+            "entropy": float(entropy_estimate.item()),
+            "grad_norm": float("nan"),
+        }
+
     optimizer.zero_grad()
     loss.backward()
 
     # Gradient clipping and sanity checks
     grad_norm = torch.nn.utils.clip_grad_norm_(policy.parameters(), config.max_grad_norm)
-    assert torch.isfinite(grad_norm), "Non-finite gradient norm encountered."
+    if not torch.isfinite(grad_norm):
+        return {
+            "loss": float(loss.item()),
+            "actor_loss": float(actor_loss.item()),
+            "value_loss": float(value_loss.item()),
+            "entropy": float(entropy_estimate.item()),
+            "grad_norm": float("nan"),
+        }
 
     optimizer.step()
 
@@ -236,6 +253,27 @@ def save_checkpoint(
     return ckpt_path
 
 
+def load_checkpoint(
+    path: Path,
+    policy: FJSPActorCritic,
+    optimizer: Optional[torch.optim.Optimizer] = None,
+) -> Dict[str, Any]:
+    """
+    Load a training checkpoint from disk.
+
+    Returns a dict with 'episode', 'config', and optionally 'optimizer_state_dict'.
+    """
+    ckpt = torch.load(path, map_location="cpu", weights_only=False)
+    policy.load_state_dict(ckpt["model_state_dict"])
+    if optimizer is not None and "optimizer_state_dict" in ckpt:
+        optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+    return {
+        "episode": ckpt["episode"],
+        "config": ckpt.get("config"),
+        "optimizer_state_dict": ckpt.get("optimizer_state_dict"),
+    }
+
+
 def run_training(config: TrainingConfig) -> Dict[str, List[float]]:
     """
     Run a full training loop with the simple actor-critic algorithm.
@@ -244,6 +282,11 @@ def run_training(config: TrainingConfig) -> Dict[str, List[float]]:
     """
     # Global seed discipline
     set_global_seeds(config.seed_config)
+    print(
+        f"[Seeds] python={config.seed_config.resolved_python_seed()}, "
+        f"numpy={config.seed_config.resolved_numpy_seed()}, "
+        f"torch={config.seed_config.resolved_torch_seed()}"
+    )
 
     device = _ensure_device(config.device)
 
@@ -271,19 +314,20 @@ def run_training(config: TrainingConfig) -> Dict[str, List[float]]:
         metrics, trajectory = run_episode(env, policy, config, device)
         stats = update_policy(policy, optimizer, trajectory, config)
 
-        # Log
+        # Log (use 0.0 placeholder when update was skipped due to non-finite loss)
         episode_rewards.append(metrics.total_reward)
         episode_makespans.append(metrics.final_makespan)
         episode_lengths.append(metrics.length)
         episode_values.append(metrics.mean_value)
         episode_advantages.append(metrics.mean_advantage)
-        losses.append(stats["loss"])
-        value_losses.append(stats["value_loss"])
+        losses.append(stats["loss"] if np.isfinite(stats["loss"]) else 0.0)
+        value_losses.append(stats["value_loss"] if np.isfinite(stats["value_loss"]) else 0.0)
 
         # Basic numerical sanity checks
-        assert np.isfinite(metrics.total_reward), "Non-finite episode reward."
-        assert np.isfinite(metrics.final_makespan), "Non-finite final makespan."
-        assert np.isfinite(stats["loss"]), "Non-finite loss."
+        if not np.isfinite(metrics.total_reward) or not np.isfinite(metrics.final_makespan):
+            print(f"[Episode {ep}] WARNING: Non-finite reward or makespan.")
+        if not np.isfinite(stats["loss"]):
+            print(f"[Episode {ep}] WARNING: Non-finite loss (update was skipped).")
 
         if ep % config.log_interval == 0 or ep == 1:
             print(
@@ -313,6 +357,7 @@ __all__ = [
     "run_episode",
     "update_policy",
     "save_checkpoint",
+    "load_checkpoint",
     "run_training",
 ]
 

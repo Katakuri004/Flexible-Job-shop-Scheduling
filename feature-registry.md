@@ -25,11 +25,12 @@ Each feature is labeled with a stable ID (`R-*`) and links to the relevant code 
 
 ---
 
-### R-SEED-01 – Seed Discipline for Deterministic Replay (Pre-RL)
+### R-SEED-01 – Seed Discipline for Deterministic Replay
 
-- **Requirement**: Establish a centralized way to set seeds for stochastic components (at this stage: Python and NumPy) to prepare for deterministic replay and reproducible tests.
+- **Requirement**: Establish a centralized way to set seeds for stochastic components (Python, NumPy, and PyTorch) to prepare for deterministic replay and reproducible tests.
 - **Implementation**:
   - `SeedConfig`, `set_global_seeds` in `src/seed_utils.py`
+  - PyTorch seeds (`torch.manual_seed`, `torch.cuda.manual_seed_all`) applied when PyTorch is available
 - **Tests**:
   - Indirectly exercised via:
     - `tests/test_toy_fjsp.py` (both tests call `set_global_seeds` before environment construction and execution)
@@ -183,7 +184,7 @@ Each feature is labeled with a stable ID (`R-*`) and links to the relevant code 
 
 - **Requirement**: Provide a reproducible, research-grade training loop for the single-agent actor-critic policy on the FJSP environment, with deterministic seeds, invariants, and basic logging.
 - **Implementation**:
-  - `TrainingConfig`, `EpisodeMetrics`, `run_episode`, `update_policy`, `save_checkpoint`, `run_training` in `src/ac_training.py`
+  - `TrainingConfig`, `EpisodeMetrics`, `run_episode`, `update_policy`, `save_checkpoint`, `load_checkpoint`, `run_training` in `src/ac_training.py`
 - **Behavior**:
   - Uses `FJSPEnv` and `FJSPActorCritic` to collect rollouts for a fixed number of episodes
   - Computes discounted returns and simple advantages (`return - value`) per step

@@ -20,7 +20,7 @@ def test_ppo_training_smoke() -> None:
         device="cpu",
     )
 
-    metrics = run_ppo_training(cfg)
+    metrics, _ = run_ppo_training(cfg)
 
     assert len(metrics["epoch_losses"]) == cfg.num_epochs
     assert len(metrics["epoch_value_losses"]) == cfg.num_epochs

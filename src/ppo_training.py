@@ -260,9 +260,9 @@ def ppo_update(
     }
 
 
-def run_ppo_training(config: PPOConfig) -> Dict[str, List[float]]:
+def run_ppo_training(config: PPOConfig) -> Tuple[Dict[str, List[float]], FJSPActorCritic]:
     """
-    High-level PPO training loop.
+    High-level PPO training loop. Returns (metrics_dict, trained_policy) for evaluation.
     """
     set_global_seeds(config.seed_config)
     device = _ensure_device(config.device)
@@ -307,12 +307,13 @@ def run_ppo_training(config: PPOConfig) -> Dict[str, List[float]]:
                 f"ValueLoss={update_stats['value_loss']:.4f}"
             )
 
-    return {
+    metrics = {
         "epoch_losses": epoch_losses,
         "epoch_value_losses": epoch_value_losses,
         "epoch_entropies": epoch_entropies,
         "epoch_mean_makespans": epoch_mean_makespans,
     }
+    return metrics, policy
 
 
 __all__ = ["PPOConfig", "collect_ppo_batch", "run_ppo_training"]

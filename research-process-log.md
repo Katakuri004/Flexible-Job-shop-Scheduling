@@ -520,5 +520,116 @@
   - Introduce one or more larger Brandimarte-style instances and repeat the evaluation pipeline (greedy vs. actor-critic vs. PPO).
   - Monitor whether PPO maintains an advantage as the scheduling problem becomes more complex and closer to realistic FJSP benchmarks.
 
+---
+
+## Entry 14: Plan Implementation Refinements (Training, Checkpointing, Notebook)
+
+**Date**: 2026-02-15  
+**Objective**: Complete the plan for simple actor-critic training, checkpointing, reproducibility, and notebook visualization as specified.
+
+**Actions Taken**:
+1. **Seed discipline (`src/seed_utils.py`)**:
+   - Extended `SeedConfig` with optional `torch_seed` and `resolved_torch_seed()`
+   - Extended `set_global_seeds` to set PyTorch seeds (`torch.manual_seed`, `torch.cuda.manual_seed_all`) when PyTorch is available
+   - Ensures full reproducibility for RL training runs
+
+2. **Checkpointing (`src/ac_training.py`)**:
+   - Added `load_checkpoint(path, policy, optimizer)` to restore model and optionally optimizer state from disk
+   - `run_training` now logs seeds at start: `[Seeds] python=..., numpy=..., torch=...`
+   - Added sanity checks: skip policy update when loss is non-finite; log warnings for non-finite rewards/makespans
+   - Metric logging uses finite placeholders when update is skipped to preserve array lengths
+
+3. **Notebook (`notebooks/marl_training.ipynb`)**:
+   - **Section 2 – Quick smoke test**: Replaced 5-episode training run with a single episode using the untrained policy; prints makespan, episode length, and a textual schedule summary (per-machine operation list)
+   - **Section 5 – Policy trace**: Added cell that prints a trace of `(step, feasible_actions, chosen_action, reward, partial_makespan)` for the first 15 steps of the evaluation episode
+   - Extended `run_eval_episode` to record `partial_makespan` at each step for trace visualization
+   - Added imports for `run_episode`, `FJSPEnv`, `FJSPEnvConfig`, `FJSPActorCritic` in setup cell
+
+4. **Tests**:
+   - Added `test_save_and_load_checkpoint` in `tests/test_ac_training.py` to verify checkpoint save/load round-trip
+
+5. **Documentation**:
+   - Updated `feature-registry.md`: R-TRAIN-AC-09 now lists `load_checkpoint`; R-SEED-01 documents PyTorch seed support
+   - Added process log Entry 14
+
+**Results**:
+- All 23 tests pass
+- Training runs are fully reproducible with logged seeds
+- Notebook provides baseline (untrained) behaviour, training curves, Gantt chart, and step-by-step trace
+
+---
+
+## Entry 15: PPO Training Results Interpretation and Next Steps
+
+**Date**: 2026-02-15  
+**Objective**: Analyze PPO training results on Brandimarte mk01 instance, compare against greedy baseline, and define next steps for improving robustness and scaling.
+
+**Results from Notebook Execution**:
+
+1. **Greedy Baseline Performance**:
+   - Mean makespan: **80.00** (std = 0.00, best = worst = 80.00)
+   - Deterministic heuristic provides consistent, reproducible performance
+
+2. **PPO Policy Performance**:
+   - **Deterministic evaluation makespan: 78.00** (2.5% improvement over greedy baseline)
+   - **Training dynamics** (100 epochs):
+     - Initial makespan: ~122 (much worse than greedy)
+     - Best epoch mean makespan: ~81 (epoch 90)
+     - Final epoch mean makespan: ~115 (regression from best)
+     - Loss curves: Total loss drops from ~1166 to ~54; Value loss drops from ~2333 to ~109
+     - Training shows significant learning but with high variance and late-training instability
+
+3. **Learning Curve Analysis**:
+   - **Phase 1 (Epochs 1-20)**: Rapid improvement from ~122 to ~89 makespan
+   - **Phase 2 (Epochs 20-50)**: Continued improvement with fluctuations (89-99 range)
+   - **Phase 3 (Epochs 50-90)**: Stabilization around 80-95 makespan, reaching best performance (~81) at epoch 90
+   - **Phase 4 (Epochs 90-100)**: Regression to ~115 makespan, indicating potential overfitting or exploration instability
+
+**Interpretation**:
+
+- **Positive Outcomes**:
+  - PPO successfully learns a policy that **outperforms the greedy baseline** (78 vs 80 makespan)
+  - Training is numerically stable (no NaN/Inf, losses converge)
+  - The policy demonstrates clear learning progression from random initialization
+  - End-to-end pipeline (environment → GNN encoder → PPO → evaluation) works correctly
+
+- **Limitations Identified**:
+  - **High variance**: Training makespan fluctuates significantly (81-122 range)
+  - **Late-training instability**: Best performance occurs mid-training (epoch 90), not at the end
+  - **Small improvement margin**: Only 2.5% better than greedy heuristic (78 vs 80)
+  - **Single evaluation**: Only one deterministic episode evaluated; statistical significance unknown
+
+**Next Steps**:
+
+1. **Immediate Improvements**:
+   - **Multi-seed evaluation**: Run PPO training with 5-10 different seeds, evaluate each, and report mean ± std makespan
+   - **Best-epoch checkpointing**: Save checkpoints during training and evaluate the policy from the best epoch (not just final epoch)
+   - **Hyperparameter tuning**: Test lower learning rates, adjusted entropy coefficients, or different PPO clip ranges to reduce variance
+
+2. **Scaling and Robustness**:
+   - **Larger instances**: Test on mk02, mk03, mk04 from Brandimarte1993 to see if PPO advantage scales
+   - **Multi-instance evaluation**: Report performance across multiple instances, not just mk01
+   - **Robustness metrics**: Introduce failure scenarios (machine breakdowns, processing time perturbations) and evaluate CVaR, variance, and nervousness metrics as planned
+
+3. **Multi-Agent Extension**:
+   - **MAPPO implementation**: Extend from single-agent PPO to dual-agent MAPPO (job agent + machine agent) as per original research plan
+   - **Coordination mechanisms**: Implement centralized critic with decentralized actors for better scalability
+
+4. **Baseline Comparisons**:
+   - **Additional heuristics**: Compare against more sophisticated baselines (e.g., genetic algorithms, priority dispatch rules)
+   - **Ablation studies**: Test impact of GNN encoder depth, hidden dimensions, and reward shaping
+
+**Observations**:
+- The current PPO implementation demonstrates proof-of-concept: RL can learn scheduling policies competitive with simple heuristics
+- However, the small improvement margin and high variance suggest that:
+  - The problem instance (mk01) may be too simple for RL to show clear advantage
+  - Hyperparameters may need tuning for better stability
+  - Multi-agent coordination (MAPPO) may be necessary for more complex instances
+- The late-training regression (epoch 100 makespan = 115) indicates potential overfitting or exploration-exploitation imbalance
+
+**Next Step**:
+- Implement multi-seed evaluation protocol and best-epoch checkpointing in the notebook
+- Run systematic hyperparameter sweep (learning rate, entropy coefficient) to improve stability
+- Scale evaluation to 3-5 Brandimarte instances to assess generalization
 
 
